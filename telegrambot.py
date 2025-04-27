@@ -17,12 +17,15 @@ from aiohttp import web
 logging.basicConfig(level=logging.INFO, format='[%(asctime)s] %(levelname)s: %(message)s')
 logger = logging.getLogger(__name__)
 
-# Hardcoded bot token
-BOT_TOKEN = "8049406807:AAGhuUh9fOm5wt7OvTobuRngqY0ZNBMxlHE"
-# Placeholder group ID
-GROUP_ID = "-1002522049841"  # Replace with actual group ID
-# Admin chat ID for notifications
-ADMIN_CHAT_ID = "6972264549"  # Replace with your Telegram chat ID
+# Load environment variables
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+GROUP_ID = os.getenv("GROUP_ID")
+ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID")
+
+# Validate environment variables
+if not all([BOT_TOKEN, GROUP_ID, ADMIN_CHAT_ID]):
+    logger.error("Missing environment variables for BOT_TOKEN, GROUP_ID, or ADMIN_CHAT_ID")
+    raise ValueError("Required environment variables are not set")
 
 # Global data storage
 scan_results = {}
@@ -129,7 +132,7 @@ def test_default_creds(ip, port):
             results.append(f"❌ Error: {username}:{password} (unknown error)")
     return results
 
-# Test RTSP brute-forcing
+# Test RTSP brute dyspnea
 def test_rtsp_brute(ip, port):
     results = []
     for username, password in DEFAULT_CREDS:
@@ -414,7 +417,7 @@ async def scan_cidr(cidr, chat_id, update, context, is_cctv=False):
 
         total_ips = net.num_addresses - 2  # Exclude network and broadcast
         if total_ips <= 0:
-            await update.message.reply_text("⚠️ CIDR range is too small.")
+            await update.message.reply_text("⚠️ CIDR range is too small or invalid (e.g., /31 or /32).")
             return
 
         await update.message.reply_text(
@@ -581,7 +584,10 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             # Find the CIDR that contains this IP
             cidr = None
-            for c in cidr_results.get(chat_id, {}):
+            if chat_id not in cidr_results:
+                await query.message.reply_text("⚠️ No CIDR scan results found. Please start a new scan.")
+                return
+            for c in cidr_results[chat_id]:
                 if ip in cidr_results[chat_id][c]:
                     cidr = c
                     break
@@ -714,26 +720,12 @@ async def scan(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Start new scan instantly
     logger.info(f"Starting new scan: mode={mode}, ip={target}, chat_id={chat_id}")
     try:
-        if mode == "ip_scan":
-            if "/" in target:
-                await scan_cidr(target, chat_id, update, context, is_cctv=False)
-            else:
-                await scan_single_ip(target, chat_id, update, context, is_cctv=False)
-        elif mode == "cctv_hack":
-            if "/" in target:
-                await scan_cidr(target, chat_id, update, context, is_cctv=True)
-            else:
-                await scan_single_ip(target, chat_id, update, context, is_cctv=True)
-    except Exception as e:
-        logger.error(f"Error starting new scan for chat_id {chat_id}: {str(e)}")
-        await update.message.reply_text(f"⚠️ Scan failed: {str(e)}")
-        try:
-            await context.bot.send_message(
-                chat_id=ADMIN_CHAT_ID,
-                text=f"⚠️ Scan error for chat {chat_id}: {str(e)}"
-            )
-        except Exception as admin_e:
-            logger.error(f"Failed to notify admin: {admin_e}")
+        await scan_queue.put((mode, target, chat_id, update, context))
+        logger.info(f"Queued scan: mode={mode}, ip={target}, chat_id={chat_id}")
+    except asyncio.QueueFull:
+        logger.error(f"Scan queue full for chat_id {chat_id}")
+        await update.message.reply_text("⚠️ Scan queue is full. Please try again later.")
+        return
 
 async def process_scan_queue(app):
     logger.info("Starting scan queue processor")
@@ -747,7 +739,7 @@ async def process_scan_queue(app):
                         if "/" in target:
                             await scan_cidr(target, chat_id, update, context, is_cctv=False)
                         else:
-                            await scan_single_ip(target, boutchat_id, update, context, is_cctv=False)
+                            await scan_single_ip(target, chat_id, update, context, is_cctv=False)
                     elif mode == "cctv_hack":
                         if "/" in target:
                             await scan_cidr(target, chat_id, update, context, is_cctv=True)
@@ -790,6 +782,7 @@ async def process_scan_queue(app):
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.error(f"Error: {context.error}")
     if isinstance(context.error, (NetworkError, TimedOut)):
+        logger.error(f"Network/TimedOut error: {context.error}")
         await asyncio.sleep(5)
     elif isinstance(context.error, BadRequest):
         logger.error(f"BadRequest: {context.error}")
@@ -801,7 +794,7 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             logger.error(f"Failed to clear webhook: {str(e)}")
     elif str(context.error).startswith("TooManyRequests"):
-        logger.warning("Telegram rate limit hit, applying backoff")
+        logger.warning(f"Telegram rate limit hit: {context.error}")
         await asyncio.sleep(2 ** len(str(context.error)))
     try:
         if update:
@@ -822,11 +815,19 @@ async def main():
         logger.error(f"Error initializing bot: {str(e)}")
         raise
 
-    try:
-        await app.bot.delete_webhook(drop_pending_updates=True)
-        logger.info("Webhook cleared at startup")
-    except Exception as e:
-        logger.error(f"Failed to clear webhook at startup: {str(e)}")
+    # Ensure webhook is cleared
+    for attempt in range(3):
+        try:
+            await app.bot.delete_webhook(drop_pending_updates=True)
+            logger.info("Webhook cleared at startup")
+            break
+        except Exception as e:
+            logger.error(f"Failed to clear webhook at startup (attempt {attempt + 1}/3): {str(e)}")
+            if attempt == 2:
+                logger.error("Max retries reached for webhook clearing, shutting down...")
+                await http_runner.cleanup()
+                raise
+            await asyncio.sleep(5)
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("cancel", cancel))
@@ -834,7 +835,7 @@ async def main():
     app.add_handler(CommandHandler("info", info))
     app.add_handler(CommandHandler("status", status))
     app.add_handler(CommandHandler("clearlocks", clear_locks))
-    app.add_handler(MessageHandler filters.TEXT & ~filters.COMMAND, scan))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, scan))
     app.add_handler(CallbackQueryHandler(button_click))
     app.add_error_handler(error_handler)
 
