@@ -22,11 +22,6 @@ BOT_TOKEN = os.getenv("8049406807:AAGhuUh9fOm5wt7OvTobuRngqY0ZNBMxlHE")
 GROUP_ID = os.getenv("-1002522049841")
 ADMIN_CHAT_ID = os.getenv("6972264549")
 
-# Validate environment variables
-if not all([BOT_TOKEN, GROUP_ID, ADMIN_CHAT_ID]):
-    logger.error("Missing environment variables for BOT_TOKEN, GROUP_ID, or ADMIN_CHAT_ID")
-    raise ValueError("Required environment variables are not set")
-
 # Global data storage
 scan_results = {}
 scan_locks = {}
