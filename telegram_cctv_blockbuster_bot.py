@@ -14,7 +14,7 @@ from aiohttp import web
 # Hardcoded bot token
 BOT_TOKEN = "8049406807:AAGhuUh9fOm5wt7OvTobuRngqY0ZNBMxlHE"
 # Placeholder group ID (replace with actual group ID)
-GROUP_ID = "-1002522049841"  # Replace with actual group ID
+GROUP_ID = "-1234567890"  # Replace with actual group ID
 
 # Global data storage
 scan_results = {}
@@ -67,6 +67,7 @@ async def start_http_server():
     site = web.TCPSite(runner, '0.0.0.0', port)
     await site.start()
     print(f"[{time.ctime()}] HTTP server started on port {port}")
+    return runner  # Return runner for cleanup
 
 # Validate IP address
 def is_valid_ip(ip):
@@ -447,12 +448,23 @@ async def main():
     app.add_handler(CallbackQueryHandler(button_click))
     app.add_error_handler(error_handler)
 
-    # Start HTTP server and Telegram bot concurrently
-    await asyncio.gather(
-        start_http_server(),
-        app.run_polling(allowed_updates=Update.ALL_TYPES)
-    )
+    # Start HTTP server
+    await app.initialize()
+    await app.start()
+    await app.updater.start_polling(allowed_updates=Update.ALL_TYPES)
     print(f"[{time.ctime()}] Bot polling started")
+
+    # Keep running until interrupted
+    try:
+        while True:
+            await asyncio.sleep(3600)  # Sleep to keep loop alive
+    except (KeyboardInterrupt, SystemExit):
+        print(f"[{time.ctime()}] Shutting down...")
+        await app.updater.stop()
+        await app.stop()
+        await app.shutdown()
+        await http_runner.cleanup()
+        print(f"[{time.ctime()}] Shutdown complete")
 
 if __name__ == "__main__":
     asyncio.run(main())
