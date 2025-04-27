@@ -18,9 +18,9 @@ logging.basicConfig(level=logging.INFO, format='[%(asctime)s] %(levelname)s: %(m
 logger = logging.getLogger(__name__)
 
 # Load environment variables
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-GROUP_ID = os.getenv("GROUP_ID")
-ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID")
+BOT_TOKEN = os.getenv("8049406807:AAGhuUh9fOm5wt7OvTobuRngqY0ZNBMxlHE")
+GROUP_ID = os.getenv("-1002522049841")
+ADMIN_CHAT_ID = os.getenv("6972264549")
 
 # Validate environment variables
 if not all([BOT_TOKEN, GROUP_ID, ADMIN_CHAT_ID]):
