@@ -21,9 +21,9 @@ logger = logging.getLogger(__name__)
 # Hardcoded bot token
 BOT_TOKEN = "8049406807:AAGhuUh9fOm5wt7OvTobuRngqY0ZNBMxlHE"
 # Placeholder group ID
-GROUP_ID = "-1234567890"  # Replace with actual group ID
+GROUP_ID = "-1002522049841"  # Replace with actual group ID
 # Admin chat ID for notifications
-ADMIN_CHAT_ID = "YOUR_ADMIN_CHAT_ID"  # Replace with your Telegram chat ID
+ADMIN_CHAT_ID = "6972264549"  # Replace with your Telegram chat ID
 
 # Global data storage
 scan_results = {}
