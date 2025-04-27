@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 # Hardcoded bot token
 BOT_TOKEN = "8049406807:AAGhuUh9fOm5wt7OvTobuRngqY0ZNBMxlHE"
 # Placeholder group ID (replace with actual group ID)
-GROUP_ID = "-1234567890"  # Replace with actual group ID
+GROUP_ID = "-1002522049841"  # Replace with actual group ID
 
 # Global data storage
 scan_results = {}
