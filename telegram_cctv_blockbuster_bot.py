@@ -5,11 +5,16 @@ import concurrent.futures
 import requests
 import time
 import os
+import asyncio
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, MessageHandler, ContextTypes, filters
+from telegram.error import NetworkError, BadRequest
+from aiohttp import web
 
+# Hardcoded bot token
 BOT_TOKEN = "8049406807:AAGhuUh9fOm5wt7OvTobuRngqY0ZNBMxlHE"
-ALLOWED_USERS = [6972264549]  # Your Telegram user ID as admin
+# Placeholder group ID (replace with actual group ID)
+GROUP_ID = "-1002522049841"  # Replace with actual group ID
 
 # Global data storage
 scan_results = {}
@@ -17,7 +22,8 @@ scan_locks = {}
 message_ids = {}
 scan_stop = {}
 last_message_state = {}
-awaiting_input = {}  # Track user input mode
+awaiting_input = {}
+recent_scans = []  # Store recent scan results
 
 # Common CCTV ports (TCP) and UDP ports
 CCTV_PORTS = [80, 554, 8000, 8080, 8443]
@@ -33,8 +39,8 @@ SERVICE_MAP = {
 
 # Extended default credentials
 DEFAULT_CREDS = [
-    ("admin", "admin"), ("admin", "12345"), ("admin", ""), 
-    ("root", "root"), ("root", ""), ("admin", "666666"), 
+    ("admin", "admin"), ("admin", "12345"), ("admin", ""),
+    ("root", "root"), ("root", ""), ("admin", "666666"),
     ("admin", "password"), ("user", "user")
 ]
 
@@ -47,6 +53,20 @@ VULN_ALERTS = {
     8443: "HTTPS-alt port open. Ensure SSL certificates are valid and credentials are strong.",
     37020: "ONVIF discovery (UDP). May expose camera details. Restrict network access."
 }
+
+# HTTP server for health checks
+async def health_check(request):
+    return web.Response(text="OK")
+
+async def start_http_server():
+    app = web.Application()
+    app.add_routes([web.get('/health', health_check)])
+    port = int(os.getenv("PORT", 8080))
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, '0.0.0.0', port)
+    await site.start()
+    print(f"[{time.ctime()}] HTTP server started on port {port}")
 
 # Validate IP address
 def is_valid_ip(ip):
@@ -64,7 +84,7 @@ def detect_camera_model(ip, port):
         title = title.group(1) if title else "Unknown"
         return f"Server: {server}, Page Title: {title}"
     except Exception as e:
-        print(f"Error detecting camera model on {ip}:{port}: {e}")
+        print(f"[{time.ctime()}] Error detecting camera model on {ip}:{port}: {e}")
         return "Unknown"
 
 # Test default credentials (HTTP)
@@ -79,7 +99,7 @@ def test_default_creds(ip, port):
             else:
                 results.append(f"❌ Failed: {username}:{password}")
         except Exception as e:
-            print(f"Error testing creds {username}:{password} on {ip}:{port}: {e}")
+            print(f"[{time.ctime()}] Error testing creds {username}:{password} on {ip}:{port}: {e}")
             results.append(f"❌ Error: {username}:{password}")
     return results
 
@@ -98,7 +118,7 @@ def test_rtsp_brute(ip, port):
             else:
                 results.append(f"❌ RTSP Failed: {username}:{password}")
         except Exception as e:
-            print(f"Error testing RTSP creds {username}:{password} on {ip}:{port}: {e}")
+            print(f"[{time.ctime()}] Error testing RTSP creds {username}:{password} on {ip}:{port}: {e}")
             results.append(f"❌ RTSP Error: {username}:{password}")
     return results
 
@@ -109,27 +129,11 @@ def test_onvif(ip, port):
         response = requests.get(url, timeout=5)
         return "ONVIF supported" if response.status_code == 200 else "ONVIF not detected"
     except Exception as e:
-        print(f"Error testing ONVIF on {ip}:{port}: {e}")
+        print(f"[{time.ctime()}] Error testing ONVIF on {ip}:{port}: {e}")
         return "Error testing ONVIF"
-
-# Log results to file
-def log_results(ip, chat_id):
-    try:
-        with open(f"/sdcard/cctv_scan_{chat_id}.txt", "a") as f:
-            f.write(f"Scan for {ip} at {time.ctime()}\n")
-            f.write(f"Open Ports: {scan_results[chat_id]['open']}\n")
-            f.write(f"Details: {scan_results[chat_id]['details']}\n\n")
-    except Exception as e:
-        print(f"Error logging results: {e}")
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.message.chat_id
-    user_id = update.message.from_user.id
-
-    if user_id not in ALLOWED_USERS:
-        await update.message.reply_text("🚫 Unauthorized user. Contact the bot owner.")
-        return
-
     keyboard = [
         [InlineKeyboardButton("🌐 IP Scanning (All 65,535 Ports)", callback_data=f"ip_scan_{chat_id}")],
         [InlineKeyboardButton("🎥 CCTV Hacking", callback_data=f"cctv_hack_{chat_id}")]
@@ -153,6 +157,22 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("⚠️ No scan in progress.")
 
+async def get_ports(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    current_time = time.time()
+    valid_results = [res for res in recent_scans if current_time - res["timestamp"] <= 24 * 3600]
+    if valid_results:
+        result = "Recent scan results:\n"
+        for res in valid_results:
+            ports = [f"{port} ({proto})" for port, proto in res["open"]]
+            result += f"IP: {res['ip']}, Open ports: {', '.join(ports)}, Scanned: {time.ctime(res['timestamp'])}\n"
+    else:
+        result = "No recent scan results available (within 24 hours)."
+    await update.message.reply_text(result)
+
+async def info(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    scan_count = len(recent_scans)
+    await update.message.reply_text(f"Bot Stats:\nTotal Scans: {scan_count}")
+
 # Port scanner function
 def scan_port(ip, port, chat_id, protocol="tcp"):
     if scan_stop.get(chat_id, False):
@@ -165,7 +185,7 @@ def scan_port(ip, port, chat_id, protocol="tcp"):
         sock.close()
         return port, result == 0, protocol
     except Exception as e:
-        print(f"Error scanning port {port} ({protocol}): {e}")
+        print(f"[{time.ctime()}] Error scanning port {port} ({protocol}): {e}")
         return None
 
 # Single IP scan
@@ -187,7 +207,7 @@ async def scan_single_ip(ip, chat_id, update, context, is_cctv=False):
         eta_text = "~10-20 min"
     total_ports = len(scan_ports)
 
-    print(f"Scanning {ip}: {total_ports} ports ({len(scan_ports) - len(UDP_PORTS)} TCP + {len(UDP_PORTS)} UDP)")
+    print(f"[{time.ctime()}] Scanning {ip}: {total_ports} ports ({len(scan_ports) - len(UDP_PORTS)} TCP + {len(UDP_PORTS)} UDP)")
 
     start_time = time.time()
     msg = await update.message.reply_text(
@@ -200,7 +220,7 @@ async def scan_single_ip(ip, chat_id, update, context, is_cctv=False):
     with concurrent.futures.ThreadPoolExecutor(max_workers=100) as executor:
         futures = [executor.submit(scan_port, ip, port, chat_id, proto) for port, proto in scan_ports]
         completed = 0
-        update_interval = max(total_ports // 10, 1000)  # Update every ~10% or 1000 ports
+        update_interval = max(total_ports // 10, 1000)
         for future in concurrent.futures.as_completed(futures):
             if scan_stop.get(chat_id, False):
                 break
@@ -236,7 +256,21 @@ async def scan_single_ip(ip, chat_id, update, context, is_cctv=False):
         )
     else:
         await update_buttons(chat_id, context, ip, 100, 0)
-        log_results(ip, chat_id)
+        # Auto-send to group
+        if scan_results[chat_id]["open"]:
+            ports = [f"{port} ({proto})" for port, proto in scan_results[chat_id]["open"]]
+            group_msg = f"Scan result for {ip}:\nOpen ports: {', '.join(ports)}\nScanned: {time.ctime()}"
+            try:
+                await context.bot.send_message(chat_id=GROUP_ID, text=group_msg)
+                print(f"[{time.ctime()}] Sent scan result to group {GROUP_ID}")
+            except Exception as e:
+                print(f"[{time.ctime()}] Error sending to group: {str(e)}")
+        # Store scan result
+        recent_scans.append({
+            "ip": ip,
+            "open": scan_results[chat_id]["open"],
+            "timestamp": time.time()
+        })
 
     scan_locks[chat_id] = False
     scan_stop.pop(chat_id, None)
@@ -267,8 +301,8 @@ async def update_buttons(chat_id, context, ip, progress, eta):
     progress_text = f"🔍 Scanning **{ip}** [{progress:.1f}%{eta_text}]"
 
     last_state = last_message_state.get(chat_id, {"text": "", "open": -1, "closed": -1})
-    if (last_state["text"] == progress_text and 
-        last_state["open"] == open_ports and 
+    if (last_state["text"] == progress_text and
+        last_state["open"] == open_ports and
         last_state["closed"] == closed_ports):
         return
 
@@ -289,7 +323,7 @@ async def update_buttons(chat_id, context, ip, progress, eta):
         last_message_state[chat_id] = {"text": progress_text, "open": open_ports, "closed": closed_ports}
     except Exception as e:
         if "Message is not modified" not in str(e):
-            print(f"Error updating buttons: {e}")
+            print(f"[{time.ctime()}] Error updating buttons: {e}")
 
 # Button click handler
 async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -297,7 +331,7 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     chat_id = query.message.chat_id
 
-    print(f"Button clicked: chat_id={chat_id}, data={query.data}, scan_results_keys={list(scan_results.keys())}")
+    print(f"[{time.ctime()}] Button clicked: chat_id={chat_id}, data={query.data}, scan_results_keys={list(scan_results.keys())}")
 
     try:
         if query.data.startswith("ip_scan_"):
@@ -314,7 +348,7 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         elif query.data.startswith(("open_", "closed_")):
             action, button_chat_id = query.data.split("_", 1)
-            print(f"Action: {action}, Button chat_id: {button_chat_id}")
+            print(f"[{time.ctime()}] Action: {action}, Button chat_id: {button_chat_id}")
 
             if button_chat_id != str(chat_id):
                 await query.message.reply_text("⚠️ Chat ID mismatch. Please start a new scan.")
@@ -361,18 +395,12 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     )
 
     except Exception as e:
-        print(f"Error in button_click: {e}")
+        print(f"[{time.ctime()}] Error in button_click: {e}")
         await query.message.reply_text(f"⚠️ Error processing button: {str(e)}")
 
 # Handle user input
 async def scan(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.message.chat_id
-    user_id = update.message.from_user.id
-
-    if user_id not in ALLOWED_USERS:
-        await update.message.reply_text("🚫 Unauthorized user. Contact the bot owner.")
-        return
-
     if scan_locks.get(chat_id, False):
         await update.message.reply_text("⚙️ Scan in progress... please wait for it to complete!")
         return
@@ -395,11 +423,36 @@ async def scan(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await update.message.reply_text("⚠️ CCTV hacking supports single IPs only. Use `192.168.1.1`.")
 
-# Set up the bot
-app = ApplicationBuilder().token(BOT_TOKEN).build()
-app.add_handler(CommandHandler("start", start))
-app.add_handler(CommandHandler("cancel", cancel))
-app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, scan))
-app.add_handler(CallbackQueryHandler(button_click))
+async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    print(f"[{time.ctime()}] Error: {context.error}")
+    if isinstance(context.error, NetworkError):
+        await asyncio.sleep(5)
+    elif isinstance(context.error, BadRequest):
+        print(f"[{time.ctime()}] BadRequest: {context.error}")
 
-app.run_polling()
+async def main():
+    print(f"[{time.ctime()}] Bot starting...")
+    try:
+        app = ApplicationBuilder().token(BOT_TOKEN).build()
+        print(f"[{time.ctime()}] Bot initialized with token: {BOT_TOKEN[:10]}...")
+    except Exception as e:
+        print(f"[{time.ctime()}] Error initializing bot: {str(e)}")
+        raise
+
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("cancel", cancel))
+    app.add_handler(CommandHandler("getports", get_ports))
+    app.add_handler(CommandHandler("info", info))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, scan))
+    app.add_handler(CallbackQueryHandler(button_click))
+    app.add_error_handler(error_handler)
+
+    # Start HTTP server and Telegram bot concurrently
+    await asyncio.gather(
+        start_http_server(),
+        app.run_polling(allowed_updates=Update.ALL_TYPES)
+    )
+    print(f"[{time.ctime()}] Bot polling started")
+
+if __name__ == "__main__":
+    asyncio.run(main())
