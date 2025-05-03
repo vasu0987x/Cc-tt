@@ -443,7 +443,7 @@ async def scan_single_ip(ip, chat_id, update, context, is_cctv=False, is_top100=
             )
         finally:
             scan_locks.pop(chat_id, None)
-           -scan_stop.pop(chat_id, None)
+            scan_stop.pop(chat_id, None)
             message_ids.pop(chat_id, None)
             last_message_state.pop(chat_id, None)
             awaiting_input.pop(chat_id, None)
