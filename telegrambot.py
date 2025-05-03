@@ -42,9 +42,38 @@ lock_timeouts = {}  # Track lock start time for timeout
 CCTV_PORTS = [80, 554, 8000, 8080, 8443]
 UDP_PORTS = [37020]
 
+# Top 100 commonly used ports for scanning
+TOP_100_PORTS = [
+    (7, "tcp"), (9, "tcp"), (13, "tcp"), (15, "tcp"), (19, "tcp"), (20, "tcp"), (21, "tcp"), (22, "tcp"),
+    (23, "tcp"), (25, "tcp"), (26, "tcp"), (37, "tcp"), (53, "tcp"), (69, "tcp"), (79, "tcp"), (80, "tcp"),
+    (88, "tcp"), (110, "tcp"), (111, "tcp"), (119, "tcp"), (123, "tcp"), (135, "tcp"), (139, "tcp"), (143, "tcp"),
+    (161, "tcp"), (162, "tcp"), (389, "tcp"), (443, "tcp"), (445, "tcp"), (465, "tcp"), (514, "tcp"), (515, "tcp"),
+    (587, "tcp"), (636, "tcp"), (993, "tcp"), (995, "tcp"), (1080, "tcp"), (1433, "tcp"), (1521, "tcp"), (1723, "tcp"),
+    (2049, "tcp"), (3306, "tcp"), (3388, "tcp"), (3389, "tcp"), (5432, "tcp"), (554, "tcp"), (5900, "tcp"), (5985, "tcp"),
+    (6379, "tcp"), (8000, "tcp"), (8080, "tcp"), (8081, "tcp"), (8082, "tcp"), (8083, "tcp"), (8084, "tcp"), (8085, "tcp"),
+    (8086, "tcp"), (8087, "tcp"), (8088, "tcp"), (8089, "tcp"), (8090, "tcp"), (8443, "tcp"), (8444, "tcp"), (8445, "tcp"),
+    (8446, "tcp"), (8447, "tcp"), (8448, "tcp"), (8449, "tcp"), (8880, "tcp"), (8888, "tcp"), (9000, "tcp"), (9001, "tcp"),
+    (9042, "tcp"), (9090, "tcp"), (9100, "tcp"), (9200, "tcp"), (9999, "tcp"), (10000, "tcp"), (10001, "tcp"), (10002, "tcp"),
+    (10003, "tcp"), (10004, "tcp"), (10005, "tcp"), (11211, "tcp"), (27017, "tcp"), (5000, "tcp"), (5433, "tcp"), (5672, "tcp"),
+    (5984, "tcp"), (6378, "tcp"), (8008, "tcp"), (69, "udp"), (123, "udp"), (161, "udp"), (162, "udp"), (37020, "udp")
+]
+
 # Port to service mapping
 SERVICE_MAP = {
-    80: "http", 554: "rtsp", 8000: "http-alt", 8080: "http-alt", 8443: "https-alt", 37020: "onvif"
+    80: "http", 554: "rtsp", 8000: "http-alt", 8080: "http-alt", 8443: "https-alt", 37020: "onvif",
+    7: "echo", 9: "discard", 13: "daytime", 15: "netstat", 19: "chargen", 20: "ftp-data", 21: "ftp", 22: "ssh",
+    23: "telnet", 25: "smtp", 26: "rsftp", 37: "time", 53: "dns", 69: "tftp", 79: "finger", 88: "kerberos",
+    110: "pop3", 111: "rpcbind", 119: "nntp", 123: "ntp", 135: "msrpc", 139: "netbios", 143: "imap", 161: "snmp",
+    162: "snmptrap", 389: "ldap", 443: "https", 445: "smb", 465: "smtps", 514: "syslog", 515: "lpd", 587: "submission",
+    636: "ldaps", 993: "imaps", 995: "pop3s", 1080: "socks", 1433: "mssql", 1521: "oracle", 1723: "pptp", 2049: "nfs",
+    3306: "mysql", 3388: "rdp-alt", 3389: "rdp", 5432: "postgresql", 5900: "vnc", 5985: "winrm", 6379: "redis",
+    8081: "http-alt", 8082: "http-alt", 8083: "http-alt", 8084: "http-alt", 8085: "http-alt", 8086: "http-alt",
+    8087: "http-alt", 8088: "http-alt", 8089: "http-alt", 8090: "http-alt", 8444: "https-alt", 8445: "https-alt",
+    8446: "https-alt", 8447: "https-alt", 8448: "https-alt", 8449: "https-alt", 8880: "http-alt", 8888: "http-alt",
+    9000: "http-alt", 9001: "http-alt", 9042: "cassandra", 9090: "http-alt", 9100: "jetdirect", 9200: "elasticsearch",
+    9999: "http-alt", 10000: "webmin", 10001: "http-alt", 10002: "http-alt", 10003: "http-alt", 10004: "http-alt",
+    10005: "http-alt", 11211: "memcached", 27017: "mongodb", 5000: "upnp", 5433: "postgresql-alt", 5672: "amqp",
+    5984: "couchdb", 6378: "redis-alt", 8008: "http-alt"
 }
 
 # Extended default credentials
@@ -61,7 +90,17 @@ VULN_ALERTS = {
     8080: "HTTP-alt port open. Often used by CCTV web interfaces. Update firmware to patch vulnerabilities.",
     8000: "HTTP-alt port open. Check for weak credentials and update firmware.",
     8443: "HTTPS-alt port open. Ensure SSL certificates are valid and credentials are strong.",
-    37020: "ONVIF discovery (UDP). May expose camera details. Restrict network access."
+    37020: "ONVIF discovery (UDP). May expose camera details. Restrict network access.",
+    21: "FTP port open. Vulnerable to brute-forcing. Use strong passwords and consider SFTP.",
+    22: "SSH port open. Ensure strong passwords or key-based auth to prevent brute-forcing.",
+    23: "Telnet port open. Highly insecure, replace with SSH immediately.",
+    25: "SMTP port open. May allow email spoofing if misconfigured. Secure with authentication.",
+    53: "DNS port open. Vulnerable to DNS amplification attacks. Restrict access.",
+    110: "POP3 port open. Use encrypted POP3S (port 995) to prevent data interception.",
+    143: "IMAP port open. Use encrypted IMAPS (port 993) to secure email access.",
+    443: "HTTPS port open. Ensure valid SSL certificates and strong ciphers.",
+    445: "SMB port open. Vulnerable to exploits like EternalBlue. Restrict access and patch systems.",
+    3389: "RDP port open. Vulnerable to brute-forcing. Use strong passwords and enable NLA."
 }
 
 # HTTP server for health checks and keep-alive
@@ -205,7 +244,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [InlineKeyboardButton("🌐 IP Scanning (All 65,535 Ports)", callback_data=f"ip_scan_{chat_id}")],
         [InlineKeyboardButton("🎥 CCTV Hacking", callback_data=f"cctv_hack_{chat_id}")],
-        [InlineKeyboardButton("📡 CCTV Range Scan", callback_data=f"cctv_range_scan_{chat_id}")]
+        [InlineKeyboardButton("📡 CCTV Range Scan", callback_data=f"cctv_range_scan_{chat_id}")],
+        [InlineKeyboardButton("🔍 Top 100 Ports Scan", callback_data=f"top100_scan_{chat_id}")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text(
@@ -213,7 +253,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Choose an option:\n"
         "🌐 **IP Scanning**: Scan all 65,535 TCP ports (~10-20 min)\n"
         "🎥 **CCTV Hacking**: Scan camera ports (80, 554, 8000, 8080, 8443, 37020) & brute-force (~1-2 sec)\n"
-        "📡 **CCTV Range Scan**: Scan CCTV ports for an IP or CIDR range (~1-2 sec/IP)",
+        "📡 **CCTV Range Scan**: Scan CCTV ports for an IP or CIDR range (~1-2 sec/IP)\n"
+        "🔍 **Top 100 Ports Scan**: Scan commonly used ports for useful services (~10-20 sec)",
         parse_mode="Markdown",
         reply_markup=reply_markup
     )
@@ -281,7 +322,7 @@ def scan_port(ip, port, chat_id, protocol="tcp"):
         return None
 
 # Single IP scan
-async def scan_single_ip(ip, chat_id, update, context, is_cctv=False):
+async def scan_single_ip(ip, chat_id, update, context, is_cctv=False, is_top100=False):
     if not is_valid_ip(ip):
         await update.message.reply_text(f"⚠️ Invalid IP: {ip}")
         return
@@ -309,13 +350,17 @@ async def scan_single_ip(ip, chat_id, update, context, is_cctv=False):
                 scan_ports = [(p, "tcp") for p in CCTV_PORTS] + [(p, "udp") for p in UDP_PORTS]
                 eta_text = "~1-2 sec"
                 max_workers = 20  # Lower for CCTV to avoid RAM issues
+            elif is_top100:
+                scan_ports = TOP_100_PORTS
+                eta_text = "~10-20 sec"
+                max_workers = 50
             else:
                 scan_ports = [(p, "tcp") for p in range(1, 65536)] + [(p, "udp") for p in UDP_PORTS]
                 eta_text = "~10-20 min"
                 max_workers = 100
             total_ports = len(scan_ports)
 
-            logger.info(f"Scanning {ip}: {total_ports} ports ({len(scan_ports) - len(UDP_PORTS)} TCP + {len(UDP_PORTS)} UDP)")
+            logger.info(f"Scanning {ip}: {total_ports} ports ({len([p for p, proto in scan_ports if proto == 'tcp'])} TCP + {len([p for p, proto in scan_ports if proto == 'udp'])} UDP)")
 
             start_time = time.time()
             msg = await update.message.reply_text(
@@ -354,7 +399,7 @@ async def scan_single_ip(ip, chat_id, update, context, is_cctv=False):
                         progress = (completed / total_ports) * 100
                         elapsed = time.time() - start_time
                         eta = (elapsed / completed * total_ports - elapsed) if completed > 0 else 0
-                        await update_buttons(chat_id, context, ip, progress, eta if not is_cctv else 0, "cctv" if is_cctv else "ip")
+                        await update_buttons(chat_id, context, ip, progress, eta if not is_cctv else 0, "top100" if is_top100 else "cctv" if is_cctv else "ip")
 
             if scan_stop.get(chat_id, False):
                 await context.bot.edit_message_text(
@@ -364,7 +409,7 @@ async def scan_single_ip(ip, chat_id, update, context, is_cctv=False):
                 )
                 return
 
-            await update_buttons(chat_id, context, ip, 100, 0, "cctv" if is_cctv else "ip")
+            await update_buttons(chat_id, context, ip, 100, 0, "top100" if is_top100 else "cctv" if is_cctv else "ip")
             if scan_results[chat_id]["open"]:
                 ports = [f"{port} ({proto})" for port, proto in scan_results[chat_id]["open"]]
                 group_msg = f"Scan result for {ip}:\nOpen ports: {', '.join(ports)}\nMAC: {scan_results[chat_id]['mac']}\nScanned: {time.ctime()}"
@@ -398,7 +443,7 @@ async def scan_single_ip(ip, chat_id, update, context, is_cctv=False):
             )
         finally:
             scan_locks.pop(chat_id, None)
-            scan_stop.pop(chat_id, None)
+           -scan_stop.pop(chat_id, None)
             message_ids.pop(chat_id, None)
             last_message_state.pop(chat_id, None)
             awaiting_input.pop(chat_id, None)
@@ -406,7 +451,7 @@ async def scan_single_ip(ip, chat_id, update, context, is_cctv=False):
             logger.info(f"Cleaned up scan state for chat_id {chat_id}")
 
 # CIDR Range scan
-async def scan_cidr(cidr, chat_id, update, context, is_cctv=False):
+async def scan_cidr(cidr, chat_id, update, context, is_cctv=False, is_top100=False):
     try:
         net = ipaddress.ip_network(cidr, strict=False)
         await update.message.reply_text(
@@ -415,7 +460,7 @@ async def scan_cidr(cidr, chat_id, update, context, is_cctv=False):
         for ip in net.hosts():
             if scan_stop.get(chat_id, False):
                 break
-            await scan_single_ip(str(ip), chat_id, update, context, is_cctv=is_cctv)
+            await scan_single_ip(str(ip), chat_id, update, context, is_cctv=is_cctv, is_top100=is_top100)
     except Exception as e:
         await update.message.reply_text(f"⚠️ Error: {str(e)}")
         scan_locks.pop(chat_id, None)
@@ -479,6 +524,12 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
             awaiting_input[chat_id] = "cctv_range_scan"
             await query.message.reply_text(
                 "📡 Enter an IP or CIDR range for CCTV range scan (e.g., `192.168.1.1` or `192.168.1.0/24`):",
+                parse_mode="Markdown"
+            )
+        elif query.data.startswith("top100_scan_"):
+            awaiting_input[chat_id] = "top100_scan"
+            await query.message.reply_text(
+                "🔍 Enter an IP or CIDR range for Top 100 ports scan (e.g., `192.168.1.1` or `192.168.1.0/24`):",
                 parse_mode="Markdown"
             )
         elif query.data.startswith(("open_", "closed_")):
@@ -591,6 +642,11 @@ async def scan(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await scan_cidr(target, chat_id, update, context, is_cctv=True)
             else:
                 await scan_single_ip(target, chat_id, update, context, is_cctv=True)
+        elif mode == "top100_scan":
+            if "/" in target:
+                await scan_cidr(target, chat_id, update, context, is_cctv=False, is_top100=True)
+            else:
+                await scan_single_ip(target, chat_id, update, context, is_cctv=False, is_top100=True)
     except Exception as e:
         logger.error(f"Error starting new scan for chat_id {chat_id}: {str(e)}")
         await update.message.reply_text(f"⚠️ Scan failed: {str(e)}")
@@ -628,6 +684,11 @@ async def process_scan_queue(app):
                             await scan_cidr(target, chat_id, update, context, is_cctv=True)
                         else:
                             await scan_single_ip(target, chat_id, update, context, is_cctv=True)
+                    elif mode == "top100_scan":
+                        if "/" in target:
+                            await scan_cidr(target, chat_id, update, context, is_cctv=False, is_top100=True)
+                        else:
+                            await scan_single_ip(target, chat_id, update, context, is_cctv=False, is_top100=True)
                 finally:
                     scan_queue.task_done()
                     logger.info(f"Completed scan queue task for chat_id {chat_id}")
